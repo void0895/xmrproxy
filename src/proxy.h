@@ -69,6 +69,7 @@ typedef enum {
  *   addr     : resolved remote address (upstream connect)
  *   epoll_events : currently-registered epoll flags (to avoid redundant MOD)
  *   is_down  : true if this is the downstream side
+ *   session  : back-pointer to parent session for O(1) lookup (performance fix)
  */
 typedef struct conn {
     ws_conn_t ws;
@@ -87,6 +88,7 @@ typedef struct conn {
     uint32_t epoll_events;
     bool is_down;
 
+    struct session *session;
     struct conn *next;
 } conn_t;
 
