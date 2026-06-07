@@ -1,0 +1,15 @@
+xmr-proxy
+obj/
+*.o
+__pycache__/
+*.pyc
+cert.pem
+cert_key.pem
+cloudflared
+proxy-local.py
+proxy-server.py
+proxy-local.log
+proxy-server.log
+reooter.py
+gh.txt
+*.log
