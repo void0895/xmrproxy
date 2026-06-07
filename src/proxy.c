@@ -28,6 +28,7 @@
  *   conn_flush_write() drains on EPOLLOUT.
  * - WS frames parsed inline by ws_frame_parse() (called from relay_data)
  *   rather than by the blocking ws_recv() in websocket.c.
+ * - Session lookup via back-pointer (O(1)) instead of linked list scan (O(N)).
  */
 
 #define _GNU_SOURCE
@@ -65,6 +66,7 @@ static void init_conn_ws(conn_t *c)
     c->hlen = 0;
     c->state = CONN_INIT;
     c->epoll_events = 0;
+    c->session = NULL;
 }
 
 static void fd_add(int epoll_fd, int fd, uint32_t events, conn_t *c)
@@ -521,7 +523,7 @@ static int relay_data(session_t *s, conn_t *src, conn_t *dst, int epoll_fd)
         size_t payload_len = (size_t)plen;
 
         s->last_active = time(NULL);
-        printf("[proxy:%d] %s\u2192%s (%zu bytes)\n", s->id,
+        printf("[proxy:%d] %s→%s (%zu bytes)\n", s->id,
                src->is_down ? "down" : "up",
                src->is_down ? "up" : "down", payload_len);
         json_print(payload, payload_len);
@@ -552,7 +554,7 @@ static int relay_data(session_t *s, conn_t *src, conn_t *dst, int epoll_fd)
     if (total == 0) return 0;
 
     s->last_active = time(NULL);
-    printf("[proxy:%d] %s\u2192%s (%zu bytes)\n", s->id,
+    printf("[proxy:%d] %s→%s (%zu bytes)\n", s->id,
            src->is_down ? "down" : "up",
            src->is_down ? "up" : "down", total);
     json_print(src->ws.read_buf, (size_t)total);
@@ -657,9 +659,11 @@ static void handle_accept(proxy_ctx_t *ctx, int epoll_fd, session_t **slist)
     init_conn_ws(&s->down);
     s->down.ws.fd = fd;
     s->down.is_down = true;
+    s->down.session = s;  /* Set back-pointer for O(1) lookup */
 
     init_conn_ws(&s->up);
     s->up.is_down = false;
+    s->up.session = s;    /* Set back-pointer for O(1) lookup */
 
     s->next = *slist;
     *slist = s;
@@ -983,10 +987,8 @@ void proxy_run(proxy_ctx_t *ctx, volatile int *running)
                 continue;
             }
 
-            session_t *s = NULL;
-            for (session_t *tmp = slist; tmp; tmp = tmp->next) {
-                if (&tmp->down == c || &tmp->up == c) { s = tmp; break; }
-            }
+            /* O(1) session lookup via back-pointer instead of O(N) list scan */
+            session_t *s = c->session;
             if (!s || s->closing) continue;
 
             handle_conn_event(s, c, events[i].events, epoll_fd);
