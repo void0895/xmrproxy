@@ -1,10 +1,13 @@
-/* websocket.c -- Blocking WS client/server handshake + framing helpers.
+/* websocket.c -- Legacy blocking WS client/server handshake + framing.
  *
- * Implements the RFC 6455 handshake (client & server), text-frame send,
- * and framed receive with timeout.  Uses blocking I/O -- suitable for
- * one-shot use but NOT called by the epoll-based proxy.c at runtime.
- * The epoll loop has its own async equivalents (ws_frame_parse,
- * build_and_send_ws, do_ws_accept, do_ws_connect_req).
+ * Unchanged from the original thread-per-connection code.  Implements
+ * RFC 6455 handshake (client & server), text-frame send, and framed
+ * receive with timeout.  Uses blocking I/O.
+ *
+ * NOT called by the epoll-based proxy.c at runtime.  The epoll loop
+ * has its own async equivalents in proxy.c (ws_frame_parse,
+ * build_and_send_ws, do_ws_accept, do_ws_connect_req).  Kept for
+ * reference and potential external use.
  */
 
 #include "websocket.h"
@@ -186,7 +189,7 @@ int ws_accept(ws_conn_t *ws, int fd, SSL_CTX *server_ctx)
     memcpy(key, k, klen); key[klen] = '\0';
     /* Concatenate with the magic GUID and SHA-1 hash it per RFC 6455. */
     char concat[512];
-    snprintf(concat, sizeof(concat), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key);
+    snprintf(concat, sizeof(concat), "%s258EAFA5-E914-47DA-95CA-5AB9DC11B85B", key);
     unsigned char sha[SHA_DIGEST_LENGTH];
     SHA1((unsigned char*)concat, strlen(concat), sha);
     char accept_key[64];

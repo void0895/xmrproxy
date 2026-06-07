@@ -417,7 +417,7 @@ static int do_ws_accept(conn_t *c, int epoll_fd)
     memcpy(kbuf, key, klen); kbuf[klen] = '\0';
 
     char concat[512];
-    snprintf(concat, sizeof(concat), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", kbuf);
+    snprintf(concat, sizeof(concat), "%s258EAFA5-E914-47DA-95CA-5AB9DC11B85B", kbuf);
     unsigned char sha[SHA_DIGEST_LENGTH];
     SHA1((unsigned char*)concat, strlen(concat), sha);
     char accept_key[64];
