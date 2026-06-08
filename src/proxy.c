@@ -150,12 +150,11 @@ static int resolve_connect(const endpoint_t *ep, conn_t *c)
     return -1;
 }
 
-static int tls_connect_async(conn_t *c, int epoll_fd, const endpoint_t *ep)
+static int tls_connect_async(conn_t *c, int epoll_fd, const endpoint_t *ep, SSL_CTX *client_ctx)
 {
     snprintf(c->ws.host, sizeof(c->ws.host), "%s", ep->host);
-    c->ws.ctx = SSL_CTX_new(TLS_client_method());
-    if (!c->ws.ctx) return -1;
-    c->ws.ssl = SSL_new(c->ws.ctx);
+    c->ws.ctx = NULL;  /* shared context, not owned by connection */
+    c->ws.ssl = SSL_new(client_ctx);
     SSL_set_fd(c->ws.ssl, c->ws.fd);
     SSL_set_tlsext_host_name(c->ws.ssl, ep->host);
     c->ws.use_tls = 1;
@@ -347,12 +346,13 @@ static int build_and_send_ws(conn_t *c, const uint8_t *data, size_t len, int epo
     if (masked) {
         RAND_bytes(hdr + hlen, 4);
         if (conn_write(c, hdr, hlen + 4, epoll_fd) != 0) return -1;
-        uint8_t *tmp = malloc(len);
+        uint8_t stack_tmp[4096];
+        uint8_t *tmp = (len <= sizeof(stack_tmp)) ? stack_tmp : malloc(len);
         if (!tmp) return -1;
         for (size_t i = 0; i < len; i++)
             tmp[i] = data[i] ^ (hdr[hlen + (i % 4)]);
         int ret = conn_write(c, tmp, len, epoll_fd);
-        free(tmp);
+        if (tmp != stack_tmp) free(tmp);
         return ret;
     }
 
@@ -533,12 +533,13 @@ static int relay_data(session_t *s, conn_t *src, conn_t *dst, int epoll_fd)
         if (dst_is_ws) {
             ret = build_and_send_ws(dst, payload, payload_len, epoll_fd, dst == &s->up);
         } else {
-            uint8_t *tmp = malloc(payload_len + 1);
+            uint8_t stack_tmp[4096];
+            uint8_t *tmp = (payload_len + 1 <= sizeof(stack_tmp)) ? stack_tmp : malloc(payload_len + 1);
             if (!tmp) return -1;
             memcpy(tmp, payload, payload_len);
             tmp[payload_len] = '\n';
             ret = conn_write(dst, tmp, payload_len + 1, epoll_fd);
-            free(tmp);
+            if (tmp != stack_tmp) free(tmp);
         }
         if (ret == 0) {
             size_t rest = src->ws.read_len - (size_t)plen;
@@ -611,7 +612,7 @@ static void handle_connect_done(session_t *s, conn_t *c, int epoll_fd)
     if (so_err != 0) { session_close(s, epoll_fd); return; }
 
     if (s->ctx->up.proto == PROTO_WSS || s->ctx->up.proto == PROTO_TLS) {
-        int r = tls_connect_async(c, epoll_fd, &s->ctx->up);
+        int r = tls_connect_async(c, epoll_fd, &s->ctx->up, s->ctx->client_ctx);
         if (r == 1) {
             if (s->ctx->up.proto == PROTO_WSS) {
                 c->state = CONN_WS_WRITE_REQ;
@@ -946,17 +947,23 @@ int proxy_init_tls(proxy_ctx_t *ctx)
         EVP_PKEY_free(pkey);
         printf("[tls] using auto-generated self-signed cert (CN=xmr-proxy)\n");
     }
+
+    ctx->client_ctx = SSL_CTX_new(TLS_client_method());
+    if (!ctx->client_ctx) { fprintf(stderr, "[tls] client SSL_CTX_new failed\n"); goto fail; }
+
     return 0;
 
 fail:
     ERR_print_errors_fp(stderr);
-    SSL_CTX_free(ctx->server_ctx); ctx->server_ctx = NULL;
+    if (ctx->server_ctx) { SSL_CTX_free(ctx->server_ctx); ctx->server_ctx = NULL; }
+    if (ctx->client_ctx) { SSL_CTX_free(ctx->client_ctx); ctx->client_ctx = NULL; }
     return -1;
 }
 
 void proxy_cleanup(proxy_ctx_t *ctx)
 {
     if (ctx->server_ctx) { SSL_CTX_free(ctx->server_ctx); ctx->server_ctx = NULL; }
+    if (ctx->client_ctx) { SSL_CTX_free(ctx->client_ctx); ctx->client_ctx = NULL; }
 }
 
 void proxy_run(proxy_ctx_t *ctx, volatile int *running)

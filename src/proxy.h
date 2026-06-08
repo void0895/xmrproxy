@@ -40,6 +40,7 @@ typedef struct {
     char cert_path[512];
     char key_path[512];
     SSL_CTX *server_ctx;      /* TLS server context for WSS/TLS listen */
+    SSL_CTX *client_ctx;      /* Shared TLS client context for upstream connections */
 } proxy_ctx_t;
 
 /* Connection state machine phases. */
